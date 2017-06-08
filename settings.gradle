@@ -4,8 +4,11 @@ include ':base'
 include ':github-oauth-login'
 include ':google-oauth-login'
 include ':gitlab-oauth-login'
+include ':bitbucket-oauth-login'
 
 project(':base').projectDir = "$rootDir/base" as File
 project(':github-oauth-login').projectDir = "$rootDir/github" as File
 project(':google-oauth-login').projectDir = "$rootDir/google" as File
 project(':gitlab-oauth-login').projectDir = "$rootDir/gitlab" as File
+project(':bitbucket-oauth-login').projectDir = "$rootDir/bitbucket" as File
+
