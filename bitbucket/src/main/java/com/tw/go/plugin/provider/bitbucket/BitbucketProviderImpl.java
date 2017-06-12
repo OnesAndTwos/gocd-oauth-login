@@ -1,6 +1,10 @@
 package com.tw.go.plugin.provider.bitbucket;
 
 import com.thoughtworks.go.plugin.api.logging.Logger;
+import com.tw.go.plugin.util.JSONUtils;
+import okhttp3.HttpUrl;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 import org.brickred.socialauth.AbstractProvider;
 import org.brickred.socialauth.Contact;
 import org.brickred.socialauth.Permission;
@@ -15,6 +19,7 @@ import org.brickred.socialauth.util.Constants;
 import org.brickred.socialauth.util.OAuthConfig;
 import org.brickred.socialauth.util.Response;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,6 +32,8 @@ import static java.lang.String.format;
 public class BitbucketProviderImpl extends AbstractProvider {
 
     private static Logger LOGGER = Logger.getLoggerFor(BitbucketProviderImpl.class);
+
+    private OkHttpClient client = new OkHttpClient();
 
     private final HashMap<String, String> endpoints;
     private final OAuth2 authenticationStrategy;
@@ -103,6 +110,7 @@ public class BitbucketProviderImpl extends AbstractProvider {
         accessGrant = authenticationStrategy.verifyResponse(requestParams, "POST");
 
         if (accessGrant != null) {
+
             LOGGER.debug("Access grant available");
 
             for (Map.Entry<String, Object> entry : accessGrant.getAttributes().entrySet()) {
@@ -178,5 +186,63 @@ public class BitbucketProviderImpl extends AbstractProvider {
     private SocialAuthException notSupported(String action) {
         LOGGER.warn("WARNING: Not implemented for BitBucket");
         return new SocialAuthException(format("%s is not implemented for BitBucket", action));
+    }
+
+    private Profile getProfile(String accessKey) {
+        HttpUrl httpUrl = new HttpUrl.Builder()
+                .scheme("https")
+                .host("api.bitbucket.org")
+                .addPathSegments("2.0/user")
+                .addQueryParameter("access_token", profile.getValidatedId())
+                .build();
+
+        Request request = new Request.Builder().url(httpUrl.url()).build();
+
+        try {
+            okhttp3.Response response = client.newCall(request).execute();
+            Map<String, Object> userResponse = (Map<String, Object>) JSONUtils.fromJSON(response.body().string());
+
+            Profile profile = new Profile();
+            profile.setFullName(userResponse.get("display_name").toString());
+            profile.setDisplayName(userResponse.get("display_name").toString());
+            profile.setValidatedId(accessKey);
+            profile.setProviderId("bitbucket");
+            profile.setEmail(getEmail(accessKey));
+
+            return profile;
+
+        } catch (IOException e) {
+            LOGGER.error("Error occurred while trying to perform get user", e);
+            throw new RuntimeException("Error occurred while trying to perform get user", e);
+        }
+    }
+
+    private String getEmail(String accessKey) {
+        HttpUrl httpUrl = new HttpUrl.Builder()
+                .scheme("https")
+                .host("api.bitbucket.org")
+                .addPathSegments("2.0/emails")
+                .addQueryParameter("access_token", profile.getValidatedId())
+                .build();
+
+        Request request = new Request.Builder().url(httpUrl.url()).build();
+
+        try {
+            okhttp3.Response response = client.newCall(request).execute();
+            Map<String, Object> emailResponse = (Map<String, Object>) JSONUtils.fromJSON(response.body().string());
+            List<Map<String, Object>> emails = (List<Map<String, Object>>) emailResponse.get("values");
+
+            for(Map<String, Object> email : emails) {
+                if(Boolean.parseBoolean(email.get("is_primary").toString())) {
+                    return email.get("email").toString();
+                }
+            }
+
+            throw new RuntimeException("No primary email on BitBucket account");
+
+        } catch (IOException e) {
+            LOGGER.error("Error occurred while trying to perform get email", e);
+            throw new RuntimeException("Error occurred while trying to perform get email", e);
+        }
     }
 }
