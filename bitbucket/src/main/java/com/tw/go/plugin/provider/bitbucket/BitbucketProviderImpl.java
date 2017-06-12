@@ -1,10 +1,6 @@
 package com.tw.go.plugin.provider.bitbucket;
 
 import com.thoughtworks.go.plugin.api.logging.Logger;
-import com.tw.go.plugin.util.JSONUtils;
-import okhttp3.HttpUrl;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
 import org.brickred.socialauth.AbstractProvider;
 import org.brickred.socialauth.Contact;
 import org.brickred.socialauth.Permission;
@@ -18,8 +14,9 @@ import org.brickred.socialauth.util.AccessGrant;
 import org.brickred.socialauth.util.Constants;
 import org.brickred.socialauth.util.OAuthConfig;
 import org.brickred.socialauth.util.Response;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,8 +29,6 @@ import static java.lang.String.format;
 public class BitbucketProviderImpl extends AbstractProvider {
 
     private static Logger LOGGER = Logger.getLoggerFor(BitbucketProviderImpl.class);
-
-    private OkHttpClient client = new OkHttpClient();
 
     private final HashMap<String, String> endpoints;
     private final OAuth2 authenticationStrategy;
@@ -60,6 +55,35 @@ public class BitbucketProviderImpl extends AbstractProvider {
 
     @Override
     public Profile getUserProfile() throws Exception {
+        String profilesResponse = authenticationStrategy.executeFeed("https://api.bitbucket.org/2.0/user").getResponseBodyAsString(Constants.ENCODING);
+        String emailsResponse = authenticationStrategy.executeFeed("https://api.bitbucket.org/2.0/user/emails").getResponseBodyAsString(Constants.ENCODING);
+        String teamsResponse = authenticationStrategy.executeFeed("https://api.bitbucket.org/2.0/teams?role=member").getResponseBodyAsString(Constants.ENCODING);
+
+        JSONObject profiles = new JSONObject(profilesResponse);
+        JSONObject emails = new JSONObject(emailsResponse);
+        JSONObject teams = new JSONObject(teamsResponse);
+
+        BitBucketProfile profile = new BitBucketProfile();
+
+        profile.setDisplayName(profiles.getString("username"));
+        profile.setFullName(profiles.getString("display_name"));
+
+        JSONArray emailValues = emails.getJSONArray("values");
+
+        for(Object emailObject : emailValues) {
+            JSONObject email = (JSONObject) emailObject;
+            if(email.getBoolean("is_primary")) {
+                profile.setEmail(email.getString("email"));
+            }
+        }
+
+        JSONArray teamValues = teams.getJSONArray("values");
+
+        for(Object teamObject : teamValues) {
+            JSONObject team = (JSONObject) teamObject;
+            profile.addTeam(team.getString("username"));
+        }
+
         return profile;
     }
 
@@ -110,25 +134,11 @@ public class BitbucketProviderImpl extends AbstractProvider {
         accessGrant = authenticationStrategy.verifyResponse(requestParams, "POST");
 
         if (accessGrant != null) {
-
             LOGGER.debug("Access grant available");
 
-            for (Map.Entry<String, Object> entry : accessGrant.getAttributes().entrySet()) {
-                LOGGER.info(format("%s : %s", entry.getKey(), entry.getValue()));
-            }
-
-            LOGGER.info(format("THE KEY: : %s", accessGrant.getKey()));
-            LOGGER.info(format("PROVIDER ID: : %s", accessGrant.getProviderId()));
-            LOGGER.info(format("THE PERMISSION SCOPE: : %s", accessGrant.getPermission().getScope()));
-            LOGGER.info(format("THE SECRET: : %s", accessGrant.getSecret()));
-
             profile = new Profile();
-            profile.setFirstName("Michael");
-            profile.setLastName("Kay");
-            profile.setEmail("mkay@thoughtworks.com");
-
+            profile.setValidatedId(accessGrant.getKey());
             return profile;
-
         } else {
             throw new SocialAuthException("Access token not found");
         }
@@ -189,60 +199,9 @@ public class BitbucketProviderImpl extends AbstractProvider {
     }
 
     private Profile getProfile(String accessKey) {
-        HttpUrl httpUrl = new HttpUrl.Builder()
-                .scheme("https")
-                .host("api.bitbucket.org")
-                .addPathSegments("2.0/user")
-                .addQueryParameter("access_token", profile.getValidatedId())
-                .build();
-
-        Request request = new Request.Builder().url(httpUrl.url()).build();
-
-        try {
-            okhttp3.Response response = client.newCall(request).execute();
-            Map<String, Object> userResponse = (Map<String, Object>) JSONUtils.fromJSON(response.body().string());
-
-            Profile profile = new Profile();
-            profile.setFullName(userResponse.get("display_name").toString());
-            profile.setDisplayName(userResponse.get("display_name").toString());
-            profile.setValidatedId(accessKey);
-            profile.setProviderId("bitbucket");
-            profile.setEmail(getEmail(accessKey));
-
-            return profile;
-
-        } catch (IOException e) {
-            LOGGER.error("Error occurred while trying to perform get user", e);
-            throw new RuntimeException("Error occurred while trying to perform get user", e);
-        }
-    }
-
-    private String getEmail(String accessKey) {
-        HttpUrl httpUrl = new HttpUrl.Builder()
-                .scheme("https")
-                .host("api.bitbucket.org")
-                .addPathSegments("2.0/emails")
-                .addQueryParameter("access_token", profile.getValidatedId())
-                .build();
-
-        Request request = new Request.Builder().url(httpUrl.url()).build();
-
-        try {
-            okhttp3.Response response = client.newCall(request).execute();
-            Map<String, Object> emailResponse = (Map<String, Object>) JSONUtils.fromJSON(response.body().string());
-            List<Map<String, Object>> emails = (List<Map<String, Object>>) emailResponse.get("values");
-
-            for(Map<String, Object> email : emails) {
-                if(Boolean.parseBoolean(email.get("is_primary").toString())) {
-                    return email.get("email").toString();
-                }
-            }
-
-            throw new RuntimeException("No primary email on BitBucket account");
-
-        } catch (IOException e) {
-            LOGGER.error("Error occurred while trying to perform get email", e);
-            throw new RuntimeException("Error occurred while trying to perform get email", e);
-        }
+        Profile profile = new Profile();
+        profile.setValidatedId(accessKey);
+        profile.setProviderId("bitbucket");
+        return profile;
     }
 }

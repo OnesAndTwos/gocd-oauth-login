@@ -23,5 +23,4 @@ public class BitBucketUser extends User {
 
         return false;
     }
-
 }

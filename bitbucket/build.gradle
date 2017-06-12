@@ -6,5 +6,4 @@ dependencies {
     compileOnly(group: 'cd.go.plugin', name: 'go-plugin-api', version: '16.4.0')
 
     compile project(':base')
-
 }
